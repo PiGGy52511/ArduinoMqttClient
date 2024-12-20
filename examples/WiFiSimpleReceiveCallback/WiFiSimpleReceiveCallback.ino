@@ -12,6 +12,9 @@
 */
 
 #include <ArduinoMqttClient.h>
+//解析json
+//#include <ArduinoJson.h>
+
 #if defined(ARDUINO_SAMD_MKRWIFI1010) || defined(ARDUINO_SAMD_NANO_33_IOT) || defined(ARDUINO_AVR_UNO_WIFI_REV2)
   #include <WiFiNINA.h>
 #elif defined(ARDUINO_SAMD_MKR1000)
@@ -30,6 +33,8 @@
 ///////please enter your sensitive data in the Secret tab/arduino_secrets.h
 char ssid[] = SECRET_SSID;    // your network SSID (name)
 char pass[] = SECRET_PASS;    // your network password (use for WPA, or use as key for WEP)
+char VALVE_R;
+char VALVE_B;
 
 // To connect with SSL/TLS:
 // 1) Change WiFiClient to WiFiSSLClient.
@@ -40,9 +45,9 @@ char pass[] = SECRET_PASS;    // your network password (use for WPA, or use as k
 WiFiClient wifiClient;
 MqttClient mqttClient(wifiClient);
 
-const char broker[] = "test.mosquitto.org";
+const char broker[] = "192.168.0.2";
 int        port     = 1883;
-const char topic[]  = "arduino/simple";
+const char topic[]  = "esp32/dev1";
 
 void setup() {
   //Initialize serial and wait for port to open:
@@ -50,14 +55,19 @@ void setup() {
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   }
-
+  
+  //初始化输入输出引脚
+  initAll();
+  turnOffAll();
+  
   // attempt to connect to WiFi network:
   Serial.print("Attempting to connect to WPA SSID: ");
   Serial.println(ssid);
+  delay(200);
   while (WiFi.begin(ssid, pass) != WL_CONNECTED) {
     // failed, retry
     Serial.print(".");
-    delay(5000);
+    delay(500);
   }
 
   Serial.println("You're connected to the network");
@@ -114,12 +124,164 @@ void onMqttMessage(int messageSize) {
   Serial.print("', length ");
   Serial.print(messageSize);
   Serial.println(" bytes:");
+  
+  /*ArduinoJson库实现json解析
+  ***************************
+  StaticJsonDocument<256> doc;
+  Deserialize the JSON document
+  DeserializationError error = deserializeJson(doc, mqttClient);
 
+  // Test if parsing succeeds.
+  if (error) {
+    Serial.print(F("deserializeJson() failed: "));
+    Serial.println(error.f_str());
+    return;
+  }
+
+  // Fetch values.
+  //
+  // Most of the time, you can rely on the implicit casts.
+  // In other case, you can do doc["time"].as<long>();
+  const char* sensor = doc["sensor"];
+
+  // Print values.
+  //
   // use the Stream interface to print the contents
   while (mqttClient.available()) {
     Serial.print((char)mqttClient.read());
   }
-  Serial.println();
+  ***************************
+  */
 
-  Serial.println();
+  //read
+  //***************************
+  char sensor[20];
+  int i = 0;
+  while (mqttClient.available()) {
+    sensor[i++] = (char)mqttClient.read();
+    }
+  sensor[i] = 0;
+  //Serial.println(sensor);
+  if(strcmp(sensor,"制水")==0) {
+      turnOffLed();
+      digitalWrite(LED_B, HIGH);
+      controlValve(1,1);
+      controlValve(2,0);
+    }
+    else if(strcmp(sensor,"冲洗")==0) {
+      turnOffLed();
+      digitalWrite(LED_G, HIGH);
+      controlValve(1,0);
+      controlValve(2,0);    
+    }
+    else if(strcmp(sensor,"停机")==0) {
+      turnOffLed();
+      controlValve(1,0);
+      controlValve(2,1);    
+    }
+  //***************************
+  
+  /* readBytes
+  ***************************  
+  if(mqttClient.available()) {
+    char sensor[100]={0};
+    mqttClient.readBytes(sensor,100);
+    Serial.println(sensor);
+    if(strcmp(sensor,"制水")==0) {
+      turnOffLed();
+      digitalWrite(LED_B, HIGH);
+      controlValve(1,1);
+      controlValve(2,0);
+    }
+    else if(strcmp(sensor,"冲洗")==0) {
+      turnOffLed();
+      digitalWrite(LED_G, HIGH);
+      controlValve(1,0);
+      controlValve(2,0);    
+    }
+    else if(strcmp(sensor,"停机")==0) {
+      turnOffLed();
+      controlValve(1,0);
+      controlValve(2,1);    
+    }
+  }
+  ***************************
+  */
+  
+  /* readStringUntil
+  ***************************  
+  String sensor;
+  if(mqttClient.available()) {
+    sensor=mqttClient.readStringUntil('\n');
+  }
+  Serial.println(sensor);
+  Serial.println("冲洗");
+  if(sensor.compareTo("冲洗")==0) {
+    turnOffLed();
+    digitalWrite(LED_G, HIGH);
+    controlValve(1,0);
+    controlValve(2,0); 
+  }
+  ***************************  
+  */
+  
+}
+
+void initAll() {
+  //LED初始化
+  //pinMode(BUTTON, INPUT);
+  pinMode(LED_R, OUTPUT);
+  pinMode(LED_G, OUTPUT);
+  pinMode(LED_B, OUTPUT);
+  
+  //电磁阀初始化
+  pinMode(VALVE1_R, OUTPUT);
+  pinMode(VALVE1_B, OUTPUT);
+  pinMode(VALVE2_R, OUTPUT);
+  pinMode(VALVE2_B, OUTPUT);
+}
+
+void turnOffAll() {
+  //关闭LED
+  //pinMode(BUTTON, INPUT);
+  digitalWrite(LED_R, LOW);
+  digitalWrite(LED_G, LOW);
+  digitalWrite(LED_B, LOW);
+  
+  //关闭电磁阀
+  digitalWrite(VALVE1_R, LOW);
+  digitalWrite(VALVE1_B, LOW);
+  digitalWrite(VALVE2_R, LOW);
+  digitalWrite(VALVE2_B, LOW);
+}
+
+void turnOffLed() {
+  //关闭LED
+  //pinMode(BUTTON, INPUT);
+  digitalWrite(LED_R, LOW);
+  digitalWrite(LED_G, LOW);
+  digitalWrite(LED_B, LOW);
+}
+
+void controlValve(char valve,bool revFlag) {
+
+  if (valve==1) {
+    VALVE_R=VALVE1_R;
+    VALVE_B=VALVE1_B;
+  }
+  else if (valve==2) {
+    VALVE_R=VALVE2_R;
+    VALVE_B=VALVE2_B;    
+  }
+
+  if(revFlag==0) {
+    digitalWrite(VALVE_R,HIGH);
+    delay(100);
+    digitalWrite(VALVE_R,LOW);
+  }
+  else {
+    digitalWrite(VALVE_B,HIGH);
+    delay(100);
+    digitalWrite(VALVE_B,LOW);
+  }
 }
